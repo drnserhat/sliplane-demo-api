@@ -81,4 +81,52 @@ app.MapGet("/demo/cache", async (IConnectionMultiplexer redis) =>
     return Results.Ok(new { key, value = value.ToString(), ttlMinutes = 10 });
 });
 
+app.MapPost("/demo/db/seed", async () =>
+{
+    await using var connection = new NpgsqlConnection(databaseUrl);
+    await connection.OpenAsync();
+
+    const string sql = """
+        CREATE TABLE IF NOT EXISTS persistence_test (
+            id INTEGER PRIMARY KEY,
+            message TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        INSERT INTO persistence_test (id, message)
+        VALUES (1, 'Sliplane Volume test successful')
+        ON CONFLICT (id) DO NOTHING;
+        """;
+
+    await using var command = new NpgsqlCommand(sql, connection);
+    await command.ExecuteNonQueryAsync();
+
+    return Results.Ok(new { status = "inserted", id = 1 });
+});
+
+app.MapGet("/demo/db/read", async () =>
+{
+    await using var connection = new NpgsqlConnection(databaseUrl);
+    await connection.OpenAsync();
+
+    const string sql = """
+        SELECT id, message, created_at
+        FROM persistence_test
+        WHERE id = 1;
+        """;
+
+    await using var command = new NpgsqlCommand(sql, connection);
+    await using var reader = await command.ExecuteReaderAsync();
+
+    if (!await reader.ReadAsync())
+        return Results.NotFound(new { status = "not_found" });
+
+    return Results.Ok(new
+    {
+        id = reader.GetInt32(0),
+        message = reader.GetString(1),
+        createdAt = reader.GetDateTime(2)
+    });
+});
+
 app.Run();
